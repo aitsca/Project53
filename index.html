@@ -135,7 +135,12 @@ button{cursor:pointer}
     </div>
     <div class="field">
       <label>Location of nr 53</label>
-      <div class="btns" style="margin-top:0"><button class="btn" id="pinBtn">Pin at my location</button></div>
+      <p class="note" style="margin:0 0 8px">Drag the 53 pin on the map, or:</p>
+      <div class="btns" style="margin-top:0">
+        <button class="btn" id="placeBtn">Tap map to place</button>
+        <button class="btn" id="hereBtn">Use my location</button>
+        <button class="btn" id="snapBtn">Snap to street</button>
+      </div>
     </div>
   </div>
   <div class="field">
@@ -261,7 +266,7 @@ function addWay(id, name, city, coords) {
   if (ways.has(id) || !name || coords.length < 2) return;
   const key = keyOf(city, name);
   const poly = L.polyline(coords, Object.assign({ renderer }, styleFor(key)));
-  poly.on('click', e => { L.DomEvent.stopPropagation(e); openStreet(key, name, city); });
+  poly.on('click', e => { L.DomEvent.stopPropagation(e); if (placing) { placePin(e.latlng); return; } openStreet(key, name, city, e.latlng); });
   poly.addTo(streetLayer);
   ways.set(id, { name, city, coords, poly, bounds: poly.getBounds().pad(0.3) });
   const st = data.streets[key];
@@ -281,8 +286,12 @@ function renderPins() {
   Object.entries(data.streets).forEach(([key, st]) => {
     if (!st.has53 || !st.pin) return;
     const icon = L.divIcon({ className: 'pin53', html: '<i class="plate">53</i>', iconSize: [38, 28], iconAnchor: [19, 14] });
-    L.marker(st.pin, { icon, title: st.name + ' 53' })
-      .on('click', () => openStreet(key, st.name, st.city)).addTo(pinLayer);
+    L.marker(st.pin, { icon, title: st.name + ' 53', draggable: true, autoPan: true })
+      .on('click', () => openStreet(key, st.name, st.city))
+      .on('dragend', e => {
+        const ll = e.target.getLatLng();
+        st.pin = [+ll.lat.toFixed(6), +ll.lng.toFixed(6)]; save(); toast('Pin moved');
+      }).addTo(pinLayer);
   });
 }
 
@@ -351,6 +360,7 @@ map.on('moveend', () => {
 });
 map.on('dragstart', () => setFollow(false));
 map.on('click', e => {
+  if (placing) { placePin(e.latlng); return; }
   if ($('streetSheet').classList.contains('open') || $('menuSheet').classList.contains('open')) { closeSheets(); return; }
   if (map.getZoom() < 15) { toast('Zoom in to see streets'); return; }
   if (!ways.size) { toast(loading ? 'Streets are still loading…' : 'No streets loaded here. Open the menu and tap "Reload streets".', 4000); return; }
@@ -376,7 +386,9 @@ function cleanup(key) {
   if (st && !st.walked && !st.has53 && !st.photo && !st.note) delete data.streets[key];
 }
 let cur = null; // {key,name,city}
-function openStreet(key, name, city) {
+let tapLL = null, placing = null;
+function openStreet(key, name, city, ll) {
+  tapLL = ll || null;
   $('menuSheet').classList.remove('open');
   const prev = selKey;
   if (cur && cur.key !== key) cleanup(cur.key);
@@ -399,11 +411,7 @@ function fillSheet() {
   if (st && st.photo) { op.hidden = false; op.href = st.photo; } else op.hidden = true;
   updatePinLabel();
 }
-function updatePinLabel() {
-  const st = cur && data.streets[cur.key];
-  const has = st && st.pin;
-  $('pinBtn').textContent = lastPos ? (has ? 'Move pin to my location' : 'Pin at my location') : (has ? 'Move pin to map centre' : 'Pin at map centre');
-}
+function updatePinLabel() { $('hereBtn').hidden = !lastPos; }
 function changed() {
   const st = data.streets[cur.key];
   if (st) collectWays(st);
@@ -418,14 +426,79 @@ $('tWalked').onclick = () => {
 $('t53').onclick = () => {
   const st = getStreet(cur.key, cur.name, cur.city);
   st.has53 = !st.has53;
-  if (st.has53) { st.walked = true; if (!st.pin) st.pin = currentPoint(); }
+  if (st.has53) { st.walked = true; if (!st.pin) st.pin = defaultPin(st); }
   changed();
 };
 function currentPoint() {
   if (lastPos) return [lastPos.lat, lastPos.lng];
   const c = map.getCenter(); return [+c.lat.toFixed(6), +c.lng.toFixed(6)];
 }
-$('pinBtn').onclick = () => { const st = getStreet(cur.key, cur.name, cur.city); st.pin = currentPoint(); changed(); toast('Pin placed'); };
+/* pin placement: default on the street, movable */
+function nearestOnLine(ll, coords) {
+  const lat0 = ll.lat * Math.PI / 180, kx = Math.cos(lat0) * 111320, ky = 110540;
+  let best = { d: Infinity, lat: coords[0][0], lng: coords[0][1] };
+  for (let i = 0; i < coords.length - 1; i++) {
+    const ax = (coords[i][1] - ll.lng) * kx, ay = (coords[i][0] - ll.lat) * ky;
+    const bx = (coords[i + 1][1] - ll.lng) * kx, by = (coords[i + 1][0] - ll.lat) * ky;
+    const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
+    let t = len ? -(ax * dx + ay * dy) / len : 0; t = Math.max(0, Math.min(1, t));
+    const px = ax + t * dx, py = ay + t * dy, d = Math.hypot(px, py);
+    if (d < best.d) best = { d, lat: +(ll.lat + py / ky).toFixed(6), lng: +(ll.lng + px / kx).toFixed(6) };
+  }
+  return best;
+}
+function snapToStreet(st, ll) {
+  let best = null;
+  Object.values(st.ways || {}).forEach(c => { if (c.length < 2) return; const r = nearestOnLine(ll, c); if (!best || r.d < best.d) best = r; });
+  return best;
+}
+function streetMiddle(st) {
+  const segLen = (a, b) => Math.hypot((b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180) * 111320, (b[0] - a[0]) * 110540);
+  let longest = null, maxL = -1;
+  Object.values(st.ways || {}).forEach(c => {
+    let l = 0; for (let i = 0; i < c.length - 1; i++) l += segLen(c[i], c[i + 1]);
+    if (l > maxL) { maxL = l; longest = c; }
+  });
+  if (!longest) return null;
+  let half = maxL / 2;
+  for (let i = 0; i < longest.length - 1; i++) {
+    const l = segLen(longest[i], longest[i + 1]);
+    if (half <= l) { const t = l ? half / l : 0, a = longest[i], b = longest[i + 1];
+      return [+(a[0] + (b[0] - a[0]) * t).toFixed(6), +(a[1] + (b[1] - a[1]) * t).toFixed(6)]; }
+    half -= l;
+  }
+  return longest[0];
+}
+function defaultPin(st) {
+  collectWays(st);
+  for (const [ll, max] of [[tapLL, 80], [lastPos, 60]]) {
+    if (!ll) continue;
+    const s = snapToStreet(st, ll);
+    if (s && s.d < max) return [s.lat, s.lng];
+  }
+  return streetMiddle(st) || currentPoint();
+}
+function placePin(ll) {
+  const st = data.streets[placing]; placing = null;
+  if (!st) return;
+  st.pin = [+ll.lat.toFixed(6), +ll.lng.toFixed(6)];
+  save(); renderPins(); fillSheet();
+  $('streetSheet').classList.add('open');
+  toast('Pin placed');
+}
+$('placeBtn').onclick = () => {
+  const st = getStreet(cur.key, cur.name, cur.city);
+  collectWays(st); placing = cur.key;
+  $('streetSheet').classList.remove('open');
+  toast('Tap the map where nr 53 is', 0);
+};
+$('hereBtn').onclick = () => { if (!lastPos) return; const st = getStreet(cur.key, cur.name, cur.city); st.pin = [lastPos.lat, lastPos.lng]; changed(); toast('Pin placed at your location'); };
+$('snapBtn').onclick = () => {
+  const st = getStreet(cur.key, cur.name, cur.city); collectWays(st);
+  const s = st.pin && snapToStreet(st, L.latLng(st.pin));
+  st.pin = s && s.d < 80 ? [s.lat, s.lng] : (streetMiddle(st) || st.pin);
+  changed(); toast('Pin moved onto ' + st.name);
+};
 $('sPhoto').addEventListener('input', () => {
   const st = getStreet(cur.key, cur.name, cur.city); st.photo = $('sPhoto').value.trim(); save();
   const op = $('openPhoto'); op.hidden = !st.photo; if (st.photo) op.href = st.photo;
@@ -480,19 +553,7 @@ $('locBtn').onclick = () => {
 };
 
 /* auto-mark: nearest named street within ~12 m, clearly closer than any other */
-function distToLine(ll, coords) {
-  const lat0 = ll.lat * Math.PI / 180, kx = Math.cos(lat0) * 111320, ky = 110540;
-  let best = Infinity;
-  for (let i = 0; i < coords.length - 1; i++) {
-    const ax = (coords[i][1] - ll.lng) * kx, ay = (coords[i][0] - ll.lat) * ky;
-    const bx = (coords[i + 1][1] - ll.lng) * kx, by = (coords[i + 1][0] - ll.lat) * ky;
-    const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
-    let t = len ? -(ax * dx + ay * dy) / len : 0; t = Math.max(0, Math.min(1, t));
-    const px = ax + t * dx, py = ay + t * dy;
-    best = Math.min(best, Math.hypot(px, py));
-  }
-  return best;
-}
+function distToLine(ll, coords) { return nearestOnLine(ll, coords).d; }
 function autoMark(ll) {
   const byKey = new Map();
   ways.forEach(w => {
@@ -606,6 +667,14 @@ $('impFile').onchange = async e => {
 };
 
 /* ---------- start ---------- */
+/* one-time repair: pins far from their own street go back onto it */
+let fixed = 0;
+Object.values(data.streets).forEach(st => {
+  if (!st.has53 || !st.pin) return;
+  const s = snapToStreet(st, L.latLng(st.pin));
+  if (s && s.d > 60) { const m = streetMiddle(st); if (m) { st.pin = m; fixed++; } }
+});
+if (fixed) { save(); setTimeout(() => toast(fixed + (fixed === 1 ? ' pin was' : ' pins were') + ' moved back onto ' + (fixed === 1 ? 'its street' : 'their streets'), 4000), 800); }
 updateCounts(); renderPins(); maybeLoad(); startWatch();
 })();
 </script>
