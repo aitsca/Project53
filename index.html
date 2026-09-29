@@ -160,6 +160,12 @@ button{cursor:pointer}
   </div>
 
   <div class="section">
+    <h3>Streets on the map</h3>
+    <p class="note" style="margin-top:0" id="loadInfo"></p>
+    <div class="btns"><button class="btn" id="reloadStreets">Reload streets</button></div>
+  </div>
+
+  <div class="section">
     <h3>City</h3>
     <p class="note" style="margin-top:0">New streets are filed under <b id="cityName">Leuven</b>.</p>
     <div class="btns"><button class="btn" id="detectCity">Use my current city</button><button class="btn" id="typeCity">Type a city</button></div>
@@ -184,7 +190,7 @@ button{cursor:pointer}
 (() => {
 const STORE = 'project53:v1';
 const DEFAULT_CENTER = [50.8798, 4.7005];
-const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 const TILE = 0.01;
 const $ = id => document.getElementById(id);
 
@@ -244,7 +250,7 @@ function styleFor(key) {
   let s;
   if (st && st.has53) s = { color: '#A63A2B', weight: 7, opacity: .95 };
   else if (st && st.walked) s = { color: '#1F4E9A', weight: 6, opacity: .85 };
-  else s = { color: '#1C2230', weight: 3, opacity: .22 };
+  else s = { color: '#1C2230', weight: 4, opacity: .35 };
   if (sel) { s = Object.assign({}, s, { weight: s.weight + 4, opacity: 1 }); if (!isMarked(st)) s.color = '#E8A900'; }
   return s;
 }
@@ -323,7 +329,9 @@ async function fetchTile(t) {
   let lastErr;
   for (const url of OVERPASS) {
     try {
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) });
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 20000);
+      const r = await fetch(url, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) });
+      clearTimeout(to);
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       const city = data.settings.city;
@@ -342,7 +350,21 @@ map.on('moveend', () => {
   save(); maybeLoad();
 });
 map.on('dragstart', () => setFollow(false));
-map.on('click', () => closeSheets());
+map.on('click', e => {
+  if ($('streetSheet').classList.contains('open') || $('menuSheet').classList.contains('open')) { closeSheets(); return; }
+  if (map.getZoom() < 15) { toast('Zoom in to see streets'); return; }
+  if (!ways.size) { toast(loading ? 'Streets are still loading…' : 'No streets loaded here. Open the menu and tap "Reload streets".', 4000); return; }
+  const p = e.containerPoint; let best = null, bd = 36;
+  ways.forEach(w => {
+    const pts = w.coords.map(c => map.latLngToContainerPoint(c));
+    for (let i = 0; i < pts.length - 1; i++) {
+      const d = L.LineUtil.pointToSegmentDistance(p, pts[i], pts[i + 1]);
+      if (d < bd) { bd = d; best = w; }
+    }
+  });
+  if (best) openStreet(keyOf(best.city, best.name), best.name, best.city);
+  else toast('Tap on or right next to a street line');
+});
 
 /* ---------- street sheet ---------- */
 function getStreet(key, name, city) {
@@ -375,8 +397,12 @@ function fillSheet() {
   $('sNote').value = st ? st.note : '';
   const op = $('openPhoto');
   if (st && st.photo) { op.hidden = false; op.href = st.photo; } else op.hidden = true;
-  $('pinBtn').textContent = st && st.pin ? 'Move pin to my location' : 'Pin at my location';
-  if (!lastPos) $('pinBtn').textContent = st && st.pin ? 'Move pin to map centre' : 'Pin at map centre';
+  updatePinLabel();
+}
+function updatePinLabel() {
+  const st = cur && data.streets[cur.key];
+  const has = st && st.pin;
+  $('pinBtn').textContent = lastPos ? (has ? 'Move pin to my location' : 'Pin at my location') : (has ? 'Move pin to map centre' : 'Pin at map centre');
 }
 function changed() {
   const st = data.streets[cur.key];
@@ -400,7 +426,11 @@ function currentPoint() {
   const c = map.getCenter(); return [+c.lat.toFixed(6), +c.lng.toFixed(6)];
 }
 $('pinBtn').onclick = () => { const st = getStreet(cur.key, cur.name, cur.city); st.pin = currentPoint(); changed(); toast('Pin placed'); };
-$('sPhoto').addEventListener('change', () => { const st = getStreet(cur.key, cur.name, cur.city); st.photo = $('sPhoto').value.trim(); changed(); });
+$('sPhoto').addEventListener('input', () => {
+  const st = getStreet(cur.key, cur.name, cur.city); st.photo = $('sPhoto').value.trim(); save();
+  const op = $('openPhoto'); op.hidden = !st.photo; if (st.photo) op.href = st.photo;
+});
+$('sPhoto').addEventListener('change', () => { updateCounts(); renderPins(); });
 $('sNote').addEventListener('input', () => { const st = getStreet(cur.key, cur.name, cur.city); st.note = $('sNote').value; save(); });
 $('pasteBtn').onclick = async () => {
   try {
@@ -438,7 +468,7 @@ function onPos(p) {
   } else { meDot.setLatLng(ll); meRing.setLatLng(ll).setRadius(acc); }
   if (follow) map.panTo(ll, { animate: true });
   if (data.settings.auto && acc <= 25) autoMark(ll);
-  if (cur) fillSheet();
+  if (cur) updatePinLabel();
 }
 function setFollow(on) { follow = on; $('locBtn').classList.toggle('on', on); }
 $('locBtn').onclick = () => {
@@ -487,9 +517,11 @@ $('menuBtn').onclick = () => {
   renderList(); updateCounts();
   $('autoToggle').checked = !!data.settings.auto;
   $('cityName').textContent = data.settings.city;
+  $('loadInfo').textContent = ways.size + ' street segments loaded' + (loading ? ', loading more…' : '.');
   $('menuSheet').classList.add('open');
 };
 $('menuDone').onclick = () => closeSheets();
+$('reloadStreets').onclick = () => { loadedTiles.clear(); closeSheets(); maybeLoad(); };
 $('autoToggle').onchange = e => { data.settings.auto = e.target.checked; save(); if (e.target.checked) startWatch(); };
 function renderList() {
   const items = Object.entries(data.streets).filter(([, s]) => s.has53)
