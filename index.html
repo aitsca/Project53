@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F4E9A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="project53">
+<title>project53</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='8' width='60' height='48' rx='10' fill='%231F4E9A'/%3E%3Crect x='6' y='12' width='52' height='40' rx='7' fill='none' stroke='white' stroke-width='3'/%3E%3Ctext x='32' y='43' font-family='Arial' font-weight='700' font-size='26' text-anchor='middle' fill='white'%3E53%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --enamel:#1F4E9A; --enamel-deep:#163A74; --brick:#A63A2B;
+  --stone:#EDEBE6; --paper:#FFFFFF; --ink:#1C2230; --muted:#5B6270; --line:#D5D2CB;
+  --shadow:0 6px 24px rgba(20,28,48,.18);
+}
+@media (prefers-color-scheme: dark){
+  :root{ --stone:#1B2030; --paper:#262C3A; --ink:#EEF0F4; --muted:#A3AAB8; --line:#3A4152; --shadow:0 6px 24px rgba(0,0,0,.45); }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:'Barlow',system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--ink);background:var(--stone);-webkit-tap-highlight-color:transparent}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #E8A900;outline-offset:2px}
+#map{position:fixed;inset:0;background:var(--stone)}
+
+/* top bar */
+.topbar{position:fixed;top:0;left:0;right:0;z-index:1000;display:flex;align-items:center;gap:8px;
+  padding:calc(env(safe-area-inset-top,0px) + 10px) 12px 0;pointer-events:none}
+.topbar>*{pointer-events:auto}
+.brand{display:flex;align-items:center;gap:6px;background:var(--paper);border-radius:12px;padding:5px 6px 5px 11px;box-shadow:var(--shadow)}
+.brand span{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;letter-spacing:.01em}
+.plate{display:inline-flex;align-items:center;justify-content:center;background:var(--enamel);color:#fff;
+  font-family:'Barlow Condensed',sans-serif;font-weight:700;line-height:1;border-radius:8px;
+  box-shadow:inset 0 0 0 2px var(--enamel),inset 0 0 0 3.5px #fff}
+.brand .plate{font-size:19px;width:40px;height:30px}
+.chip{border:0;background:var(--paper);border-radius:12px;padding:0 12px;height:40px;box-shadow:var(--shadow);font-weight:600;font-size:15px;white-space:nowrap}
+.counts{margin-left:auto;font-weight:500;font-size:14px;color:var(--muted)}
+.counts b{color:var(--ink);font-weight:600}
+
+/* floating buttons */
+.fabs{position:fixed;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);z-index:1000;display:flex;flex-direction:column;gap:10px}
+.fab{width:52px;height:52px;border-radius:16px;border:0;background:var(--paper);box-shadow:var(--shadow);display:grid;place-items:center}
+.fab svg{width:24px;height:24px;stroke:var(--ink);fill:none;stroke-width:2;stroke-linecap:round}
+.fab.on{background:var(--enamel)}
+.fab.on svg{stroke:#fff}
+
+.status{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 28px);z-index:1000;
+  background:var(--ink);color:var(--stone);padding:9px 14px;border-radius:999px;font-size:14px;font-weight:500;max-width:calc(100% - 150px);
+  text-align:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.status.show{opacity:.92}
+
+/* sheets */
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:1100;background:var(--paper);border-radius:20px 20px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.2);
+  padding:10px 18px calc(env(safe-area-inset-bottom,0px) + 18px);max-height:82vh;overflow-y:auto;transform:translateY(105%);transition:transform .25s ease}
+.sheet.open{transform:none}
+@media (prefers-reduced-motion: reduce){.sheet,.status{transition:none}}
+.grip{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
+.sheet h2{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:30px;line-height:1.05;margin:0}
+.sub{color:var(--muted);font-size:15px;margin:3px 0 16px}
+.row{display:flex;gap:10px;margin-bottom:12px}
+.toggle{flex:1;min-height:64px;border-radius:14px;border:2px solid var(--line);background:transparent;display:flex;align-items:center;justify-content:center;gap:10px;font-weight:600;font-size:17px}
+.toggle .box{width:22px;height:22px;border-radius:6px;border:2px solid currentColor;display:grid;place-items:center}
+.toggle[aria-pressed="true"]{background:var(--enamel);border-color:var(--enamel);color:#fff}
+.toggle[aria-pressed="true"] .box::after{content:'';width:10px;height:6px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.t53{border-style:dashed}
+.t53 .plate{width:44px;height:32px;font-size:21px;background:transparent;color:var(--muted);box-shadow:inset 0 0 0 2px var(--line)}
+.t53[aria-pressed="true"]{background:var(--brick);border-color:var(--brick);border-style:solid}
+.t53[aria-pressed="true"] .plate{background:var(--enamel);color:#fff;box-shadow:inset 0 0 0 2px var(--enamel),inset 0 0 0 3.5px #fff}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:14px;font-weight:600;margin-bottom:6px}
+.field input,.field textarea{width:100%;border:1.5px solid var(--line);border-radius:10px;background:var(--stone);padding:11px 12px;font-size:16px}
+.field textarea{min-height:64px;resize:vertical}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.btn{border:1.5px solid var(--line);background:transparent;border-radius:10px;padding:10px 14px;font-weight:600;font-size:15px;text-decoration:none;display:inline-flex;align-items:center}
+.btn.primary{background:var(--enamel);border-color:var(--enamel);color:#fff}
+.btn.danger{color:var(--brick);border-color:transparent;padding-left:0}
+.section{border-top:1px solid var(--line);padding-top:14px;margin-top:6px}
+.section h3{font-family:'Barlow Condensed',sans-serif;font-size:21px;margin:0 0 8px}
+.stats{display:flex;gap:18px;margin:4px 0 16px}
+.stats div{font-size:14px;color:var(--muted)}
+.stats b{display:block;font-family:'Barlow Condensed',sans-serif;font-size:34px;line-height:1;color:var(--ink)}
+.list{list-style:none;margin:0;padding:0}
+.list li button{width:100%;text-align:left;border:0;background:transparent;padding:11px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px;font-size:16px}
+.list .meta{color:var(--muted);font-size:14px}
+.empty{color:var(--muted);font-size:15px;margin:0 0 8px}
+.switch{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;padding:6px 0 12px}
+.switch input{width:22px;height:22px;accent-color:var(--enamel)}
+.note{font-size:14px;color:var(--muted);line-height:1.45}
+
+.pin53{background:none;border:0}
+.pin53 .plate{width:38px;height:28px;font-size:18px;box-shadow:inset 0 0 0 2px var(--enamel),inset 0 0 0 3.5px #fff,0 2px 6px rgba(0,0,0,.35)}
+.leaflet-control-attribution{font-size:10px}
+.leaflet-bottom.leaflet-left{margin-bottom:env(safe-area-inset-bottom,0px)}
+</style>
+</head>
+<body>
+<div id="map" aria-label="Map"></div>
+
+<header class="topbar">
+  <div class="brand" aria-label="project53"><span>project</span><i class="plate">53</i></div>
+  <button class="chip" id="cityChip" aria-label="Change city">Leuven</button>
+  <div class="counts" id="counts"></div>
+</header>
+
+<div class="fabs">
+  <button class="fab" id="menuBtn" aria-label="Open menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <button class="fab" id="locBtn" aria-label="Follow my location"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+</div>
+<div class="status" id="status" role="status"></div>
+
+<section class="sheet" id="streetSheet" aria-label="Street details">
+  <div class="grip"></div>
+  <h2 id="sName"></h2>
+  <p class="sub" id="sCity"></p>
+  <div class="row">
+    <button class="toggle" id="tWalked" aria-pressed="false"><span class="box"></span>Walked</button>
+    <button class="toggle t53" id="t53" aria-pressed="false"><i class="plate">53</i>Has a 53</button>
+  </div>
+  <div id="d53" hidden>
+    <div class="field">
+      <label for="sPhoto">Google Photos link</label>
+      <input id="sPhoto" type="url" inputmode="url" placeholder="https://photos.app.goo.gl/…">
+      <div class="btns">
+        <button class="btn" id="pasteBtn">Paste link</button>
+        <a class="btn" href="https://photos.google.com/" target="_blank" rel="noopener">Open Google Photos</a>
+        <a class="btn primary" id="openPhoto" target="_blank" rel="noopener" hidden>View photo</a>
+      </div>
+    </div>
+    <div class="field">
+      <label>Location of nr 53</label>
+      <div class="btns" style="margin-top:0"><button class="btn" id="pinBtn">Pin at my location</button></div>
+    </div>
+  </div>
+  <div class="field">
+    <label for="sNote">Note</label>
+    <textarea id="sNote" placeholder="Door colour, plate style, anything"></textarea>
+  </div>
+  <div class="btns" style="justify-content:space-between">
+    <button class="btn danger" id="clearBtn">Clear this street</button>
+    <button class="btn primary" id="doneBtn">Done</button>
+  </div>
+</section>
+
+<section class="sheet" id="menuSheet" aria-label="Menu">
+  <div class="grip"></div>
+  <h2>project53</h2>
+  <div class="stats" id="stats"></div>
+  <label class="switch">Mark streets as walked automatically while I walk <input type="checkbox" id="autoToggle"></label>
+
+  <div class="section">
+    <h3>Streets with a 53</h3>
+    <ul class="list" id="list53"></ul>
+  </div>
+
+  <div class="section">
+    <h3>City</h3>
+    <p class="note" style="margin-top:0">New streets are filed under <b id="cityName">Leuven</b>.</p>
+    <div class="btns"><button class="btn" id="detectCity">Use my current city</button><button class="btn" id="typeCity">Type a city</button></div>
+  </div>
+
+  <div class="section">
+    <h3>Export and backup</h3>
+    <div class="btns">
+      <button class="btn" id="expKml">Map file (KML)</button>
+      <button class="btn" id="expCsv">Spreadsheet (CSV)</button>
+      <button class="btn" id="expJson">Backup (JSON)</button>
+      <button class="btn" id="impJson">Restore backup</button>
+      <input type="file" id="impFile" accept="application/json,.json" hidden>
+    </div>
+    <p class="note">Your data is stored in this browser on this phone. Export a backup now and then. KML opens in Google My Maps and Google Earth.</p>
+  </div>
+  <div class="btns" style="justify-content:flex-end"><button class="btn primary" id="menuDone">Close</button></div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(() => {
+const STORE = 'project53:v1';
+const DEFAULT_CENTER = [50.8798, 4.7005];
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const TILE = 0.01;
+const $ = id => document.getElementById(id);
+
+/* ---------- storage ---------- */
+function load() {
+  try {
+    const raw = localStorage.getItem(STORE);
+    if (raw) {
+      const d = JSON.parse(raw);
+      d.streets = d.streets || {};
+      d.settings = Object.assign({ city: 'Leuven', auto: false }, d.settings || {});
+      return d;
+    }
+  } catch (e) {}
+  return { version: 1, streets: {}, settings: { city: 'Leuven', auto: false }, view: null };
+}
+let data = load();
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem(STORE, JSON.stringify(data)); }
+    catch (e) { toast('Saving failed on this device. Export a backup from the menu.'); }
+  }, 200);
+}
+
+/* ---------- ui helpers ---------- */
+let toastTimer = null;
+function toast(msg, ms = 2600) {
+  const el = $('status');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  if (ms) toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+function hideToast() { $('status').classList.remove('show'); }
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const keyOf = (city, name) => city + '|' + name;
+const isMarked = st => st && (st.walked || st.has53);
+
+/* ---------- map ---------- */
+const renderer = L.canvas({ tolerance: 12, padding: 0.5 });
+const v = data.view;
+const map = L.map('map', { zoomControl: false, renderer, attributionControl: true })
+  .setView(v ? v.c : DEFAULT_CENTER, v ? v.z : 16);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+const streetLayer = L.layerGroup().addTo(map);
+const pinLayer = L.layerGroup().addTo(map);
+
+const ways = new Map(); // id -> {name, city, coords, poly, bounds}
+let selKey = null;
+
+function styleFor(key) {
+  const st = data.streets[key];
+  const sel = key === selKey;
+  let s;
+  if (st && st.has53) s = { color: '#A63A2B', weight: 7, opacity: .95 };
+  else if (st && st.walked) s = { color: '#1F4E9A', weight: 6, opacity: .85 };
+  else s = { color: '#1C2230', weight: 3, opacity: .22 };
+  if (sel) { s = Object.assign({}, s, { weight: s.weight + 4, opacity: 1 }); if (!isMarked(st)) s.color = '#E8A900'; }
+  return s;
+}
+function restyle(key) {
+  ways.forEach(w => { if (!key || keyOf(w.city, w.name) === key) w.poly.setStyle(styleFor(keyOf(w.city, w.name))); });
+}
+function addWay(id, name, city, coords) {
+  if (ways.has(id) || !name || coords.length < 2) return;
+  const key = keyOf(city, name);
+  const poly = L.polyline(coords, Object.assign({ renderer }, styleFor(key)));
+  poly.on('click', e => { L.DomEvent.stopPropagation(e); openStreet(key, name, city); });
+  poly.addTo(streetLayer);
+  ways.set(id, { name, city, coords, poly, bounds: poly.getBounds().pad(0.3) });
+  const st = data.streets[key];
+  if (st && isMarked(st) && !st.ways[id]) { st.ways[id] = coords; save(); }
+}
+function collectWays(st) {
+  const key = keyOf(st.city, st.name);
+  ways.forEach((w, id) => { if (keyOf(w.city, w.name) === key) st.ways[id] = w.coords; });
+}
+// draw everything already stored
+Object.values(data.streets).forEach(st => {
+  Object.entries(st.ways || {}).forEach(([id, c]) => addWay(id, st.name, st.city, c));
+});
+
+function renderPins() {
+  pinLayer.clearLayers();
+  Object.entries(data.streets).forEach(([key, st]) => {
+    if (!st.has53 || !st.pin) return;
+    const icon = L.divIcon({ className: 'pin53', html: '<i class="plate">53</i>', iconSize: [38, 28], iconAnchor: [19, 14] });
+    L.marker(st.pin, { icon, title: st.name + ' 53' })
+      .on('click', () => openStreet(key, st.name, st.city)).addTo(pinLayer);
+  });
+}
+
+function updateCounts() {
+  const all = Object.values(data.streets);
+  const walked = all.filter(isMarked).length;
+  const n53 = all.filter(s => s.has53).length;
+  const photos = all.filter(s => s.has53 && s.photo).length;
+  $('counts').innerHTML = `<b>${walked}</b> walked, <b>${n53}</b> × 53`;
+  $('stats').innerHTML = `<div><b>${walked}</b>streets walked</div><div><b>${n53}</b>with a 53</div><div><b>${photos}</b>photos linked</div>`;
+}
+
+/* ---------- loading streets from OpenStreetMap ---------- */
+const loadedTiles = new Set(), queued = new Set(), queue = [];
+let loading = false;
+function maybeLoad() {
+  if (map.getZoom() < 15) { toast('Zoom in to see streets', 0); return; }
+  hideToast();
+  const b = map.getBounds();
+  const s = Math.floor(b.getSouth() / TILE), n = Math.floor(b.getNorth() / TILE);
+  const w = Math.floor(b.getWest() / TILE), e = Math.floor(b.getEast() / TILE);
+  for (let y = s; y <= n; y++) for (let x = w; x <= e; x++) {
+    const t = y + '_' + x;
+    if (!loadedTiles.has(t) && !queued.has(t)) { queued.add(t); queue.push(t); }
+  }
+  processQueue();
+}
+async function processQueue() {
+  if (loading) return;
+  const t = queue.shift();
+  if (!t) { hideToast(); return; }
+  loading = true;
+  toast('Loading streets…', 0);
+  try { await fetchTile(t); loadedTiles.add(t); }
+  catch (e) { toast('Streets did not load. Check your connection, then move the map to retry.', 4000); }
+  queued.delete(t);
+  loading = false;
+  if (queue.length) processQueue(); else if (loadedTiles.has(t)) hideToast();
+}
+async function fetchTile(t) {
+  const [y, x] = t.split('_').map(Number);
+  const s = (y * TILE).toFixed(4), w = (x * TILE).toFixed(4), n = ((y + 1) * TILE).toFixed(4), e = ((x + 1) * TILE).toFixed(4);
+  const q = `[out:json][timeout:25];way["highway"]["name"]["highway"!~"^(motorway|motorway_link|trunk|trunk_link|proposed|construction|raceway)$"](${s},${w},${n},${e});out geom;`;
+  let lastErr;
+  for (const url of OVERPASS) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      const city = data.settings.city;
+      (j.elements || []).forEach(el => {
+        if (el.type !== 'way' || !el.geometry || !el.tags) return;
+        addWay(String(el.id), el.tags.name, city, el.geometry.map(p => [+p.lat.toFixed(6), +p.lon.toFixed(6)]));
+      });
+      return;
+    } catch (err) { lastErr = err; }
+  }
+  throw lastErr;
+}
+map.on('moveend', () => {
+  const c = map.getCenter();
+  data.view = { c: [+c.lat.toFixed(5), +c.lng.toFixed(5)], z: map.getZoom() };
+  save(); maybeLoad();
+});
+map.on('dragstart', () => setFollow(false));
+map.on('click', () => closeSheets());
+
+/* ---------- street sheet ---------- */
+function getStreet(key, name, city) {
+  if (!data.streets[key]) data.streets[key] = { name, city, walked: false, has53: false, photo: '', note: '', pin: null, ways: {}, created: Date.now() };
+  return data.streets[key];
+}
+function cleanup(key) {
+  const st = data.streets[key];
+  if (st && !st.walked && !st.has53 && !st.photo && !st.note) delete data.streets[key];
+}
+let cur = null; // {key,name,city}
+function openStreet(key, name, city) {
+  $('menuSheet').classList.remove('open');
+  const prev = selKey;
+  if (cur && cur.key !== key) cleanup(cur.key);
+  cur = { key, name, city }; selKey = key;
+  if (prev) restyle(prev);
+  restyle(key);
+  fillSheet();
+  $('streetSheet').classList.add('open');
+}
+function fillSheet() {
+  const st = data.streets[cur.key];
+  $('sName').textContent = cur.name;
+  $('sCity').textContent = cur.city;
+  $('tWalked').setAttribute('aria-pressed', !!(st && st.walked));
+  $('t53').setAttribute('aria-pressed', !!(st && st.has53));
+  $('d53').hidden = !(st && st.has53);
+  $('sPhoto').value = st ? st.photo : '';
+  $('sNote').value = st ? st.note : '';
+  const op = $('openPhoto');
+  if (st && st.photo) { op.hidden = false; op.href = st.photo; } else op.hidden = true;
+  $('pinBtn').textContent = st && st.pin ? 'Move pin to my location' : 'Pin at my location';
+  if (!lastPos) $('pinBtn').textContent = st && st.pin ? 'Move pin to map centre' : 'Pin at map centre';
+}
+function changed() {
+  const st = data.streets[cur.key];
+  if (st) collectWays(st);
+  save(); restyle(cur.key); renderPins(); updateCounts(); fillSheet();
+}
+$('tWalked').onclick = () => {
+  const st = getStreet(cur.key, cur.name, cur.city);
+  st.walked = !st.walked;
+  if (!st.walked) st.has53 = false;
+  changed();
+};
+$('t53').onclick = () => {
+  const st = getStreet(cur.key, cur.name, cur.city);
+  st.has53 = !st.has53;
+  if (st.has53) { st.walked = true; if (!st.pin) st.pin = currentPoint(); }
+  changed();
+};
+function currentPoint() {
+  if (lastPos) return [lastPos.lat, lastPos.lng];
+  const c = map.getCenter(); return [+c.lat.toFixed(6), +c.lng.toFixed(6)];
+}
+$('pinBtn').onclick = () => { const st = getStreet(cur.key, cur.name, cur.city); st.pin = currentPoint(); changed(); toast('Pin placed'); };
+$('sPhoto').addEventListener('change', () => { const st = getStreet(cur.key, cur.name, cur.city); st.photo = $('sPhoto').value.trim(); changed(); });
+$('sNote').addEventListener('input', () => { const st = getStreet(cur.key, cur.name, cur.city); st.note = $('sNote').value; save(); });
+$('pasteBtn').onclick = async () => {
+  try {
+    const txt = (await navigator.clipboard.readText()).trim();
+    if (!/^https?:\/\//.test(txt)) { toast('The clipboard has no link. Copy the share link in Google Photos first.', 3500); return; }
+    const st = getStreet(cur.key, cur.name, cur.city); st.photo = txt; changed(); toast('Photo linked');
+  } catch (e) { toast('Paste was blocked. Long-press the field and paste instead.', 3500); }
+};
+$('clearBtn').onclick = () => {
+  if (!confirm('Clear everything saved for ' + cur.name + '?')) return;
+  delete data.streets[cur.key]; save(); restyle(cur.key); renderPins(); updateCounts(); fillSheet();
+};
+$('doneBtn').onclick = () => closeSheets();
+function closeSheets() {
+  $('streetSheet').classList.remove('open');
+  $('menuSheet').classList.remove('open');
+  if (cur) { cleanup(cur.key); save(); const k = cur.key; cur = null; selKey = null; restyle(k); }
+}
+
+/* ---------- location ---------- */
+let lastPos = null, meDot = null, meRing = null, follow = false, watchId = null;
+function startWatch() {
+  if (watchId !== null || !navigator.geolocation) return;
+  watchId = navigator.geolocation.watchPosition(onPos, err => {
+    if (err.code === 1) toast('Location is blocked. Allow location for this site in your browser settings.', 4500);
+  }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+}
+function onPos(p) {
+  const ll = L.latLng(+p.coords.latitude.toFixed(6), +p.coords.longitude.toFixed(6));
+  const acc = p.coords.accuracy;
+  lastPos = ll;
+  if (!meDot) {
+    meRing = L.circle(ll, { radius: acc, color: '#1F4E9A', weight: 1, opacity: .4, fillOpacity: .1, interactive: false, renderer }).addTo(map);
+    meDot = L.circleMarker(ll, { radius: 8, color: '#fff', weight: 3, fillColor: '#1F4E9A', fillOpacity: 1, interactive: false, renderer }).addTo(map);
+  } else { meDot.setLatLng(ll); meRing.setLatLng(ll).setRadius(acc); }
+  if (follow) map.panTo(ll, { animate: true });
+  if (data.settings.auto && acc <= 25) autoMark(ll);
+  if (cur) fillSheet();
+}
+function setFollow(on) { follow = on; $('locBtn').classList.toggle('on', on); }
+$('locBtn').onclick = () => {
+  startWatch();
+  if (follow) { setFollow(false); return; }
+  setFollow(true);
+  if (lastPos) map.setView(lastPos, Math.max(map.getZoom(), 17));
+  else toast('Finding your location…');
+};
+
+/* auto-mark: nearest named street within ~12 m, clearly closer than any other */
+function distToLine(ll, coords) {
+  const lat0 = ll.lat * Math.PI / 180, kx = Math.cos(lat0) * 111320, ky = 110540;
+  let best = Infinity;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const ax = (coords[i][1] - ll.lng) * kx, ay = (coords[i][0] - ll.lat) * ky;
+    const bx = (coords[i + 1][1] - ll.lng) * kx, by = (coords[i + 1][0] - ll.lat) * ky;
+    const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
+    let t = len ? -(ax * dx + ay * dy) / len : 0; t = Math.max(0, Math.min(1, t));
+    const px = ax + t * dx, py = ay + t * dy;
+    best = Math.min(best, Math.hypot(px, py));
+  }
+  return best;
+}
+function autoMark(ll) {
+  const byKey = new Map();
+  ways.forEach(w => {
+    if (!w.bounds.contains(ll)) return;
+    const k = keyOf(w.city, w.name), d = distToLine(ll, w.coords);
+    if (!byKey.has(k) || byKey.get(k).d > d) byKey.set(k, { d, w });
+  });
+  const sorted = [...byKey.entries()].sort((a, b) => a[1].d - b[1].d);
+  if (!sorted.length || sorted[0][1].d > 12) return;
+  if (sorted[1] && sorted[1][1].d < sorted[0][1].d + 6) return;
+  const [key, { w }] = sorted[0];
+  const st = data.streets[key];
+  if (st && st.walked) return;
+  const s = getStreet(key, w.name, w.city);
+  s.walked = true; collectWays(s); save(); restyle(key); updateCounts();
+  toast(w.name + ' marked as walked');
+}
+
+/* ---------- menu ---------- */
+$('menuBtn').onclick = () => {
+  if (cur) closeSheets();
+  renderList(); updateCounts();
+  $('autoToggle').checked = !!data.settings.auto;
+  $('cityName').textContent = data.settings.city;
+  $('menuSheet').classList.add('open');
+};
+$('menuDone').onclick = () => closeSheets();
+$('autoToggle').onchange = e => { data.settings.auto = e.target.checked; save(); if (e.target.checked) startWatch(); };
+function renderList() {
+  const items = Object.entries(data.streets).filter(([, s]) => s.has53)
+    .sort((a, b) => (a[1].city + a[1].name).localeCompare(b[1].city + b[1].name));
+  $('list53').innerHTML = items.length ? items.map(([k, s]) =>
+    `<li><button data-k="${esc(k)}"><span>${esc(s.name)} 53</span><span class="meta">${esc(s.city)}${s.photo ? ', photo' : ', no photo yet'}</span></button></li>`
+  ).join('') : '<p class="empty">None yet. Tap a street on the map and choose “Has a 53”.</p>';
+  $('list53').querySelectorAll('button').forEach(b => b.onclick = () => {
+    const k = b.dataset.k, s = data.streets[k];
+    setFollow(false);
+    if (s.pin) map.setView(s.pin, 18);
+    else { const all = Object.values(s.ways || {}); if (all.length) map.fitBounds(L.latLngBounds(all.flat())); }
+    openStreet(k, s.name, s.city);
+  });
+}
+function setCity(c) {
+  c = (c || '').trim(); if (!c) return;
+  data.settings.city = c; save();
+  $('cityChip').textContent = c; $('cityName').textContent = c;
+  toast('New streets go under ' + c);
+}
+$('cityChip').textContent = data.settings.city;
+$('cityChip').onclick = () => setCity(prompt('City for new streets', data.settings.city));
+$('typeCity').onclick = () => setCity(prompt('City for new streets', data.settings.city));
+$('detectCity').onclick = async () => {
+  const p = lastPos || map.getCenter();
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&lat=${p.lat}&lon=${p.lng}`);
+    const j = await r.json(), a = j.address || {};
+    const c = a.city || a.town || a.village || a.municipality;
+    if (c) setCity(c); else toast('No city found here. Type it instead.');
+  } catch (e) { toast('City lookup failed. Type it instead.'); }
+};
+
+/* ---------- export / import ---------- */
+const today = () => new Date().toISOString().slice(0, 10);
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+const xml = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+$('expKml').onclick = () => {
+  const streets = Object.values(data.streets).filter(isMarked);
+  const lines = streets.map(s => {
+    const geo = Object.values(s.ways || {}).map(c => `<LineString><tessellate>1</tessellate><coordinates>${c.map(p => p[1] + ',' + p[0]).join(' ')}</coordinates></LineString>`).join('');
+    const desc = [s.city, s.has53 ? 'Has a nr 53' : 'Walked', s.photo ? `<a href="${s.photo}">Photo</a>` : '', s.note].filter(Boolean).join('<br>');
+    return `<Placemark><name>${xml(s.name)}</name><styleUrl>#${s.has53 ? 'has53' : 'walked'}</styleUrl><description><![CDATA[${desc}]]></description><MultiGeometry>${geo}</MultiGeometry></Placemark>`;
+  }).join('\n');
+  const pins = streets.filter(s => s.has53 && s.pin).map(s =>
+    `<Placemark><name>${xml(s.name)} 53</name><description><![CDATA[${s.photo ? `<a href="${s.photo}">${s.photo}</a>` : 'No photo linked'}${s.note ? '<br>' + s.note : ''}]]></description><Point><coordinates>${s.pin[1]},${s.pin[0]}</coordinates></Point></Placemark>`).join('\n');
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>project53</name>
+<Style id="walked"><LineStyle><color>ff9a4e1f</color><width>4</width></LineStyle></Style>
+<Style id="has53"><LineStyle><color>ff2b3aa6</color><width>5</width></LineStyle></Style>
+<Folder><name>Streets</name>
+${lines}
+</Folder><Folder><name>Nr 53</name>
+${pins}
+</Folder></Document></kml>`;
+  download(`project53-${today()}.kml`, kml, 'application/vnd.google-earth.kml+xml');
+};
+$('expCsv').onclick = () => {
+  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = [['city', 'street', 'walked', 'has_53', 'photo_link', 'pin_lat', 'pin_lon', 'note']];
+  Object.values(data.streets).filter(isMarked).forEach(s =>
+    rows.push([s.city, s.name, s.walked ? 'yes' : 'no', s.has53 ? 'yes' : 'no', s.photo, s.pin ? s.pin[0] : '', s.pin ? s.pin[1] : '', s.note]));
+  download(`project53-${today()}.csv`, '\ufeff' + rows.map(r => r.map(q).join(',')).join('\n'), 'text/csv');
+};
+$('expJson').onclick = () => download(`project53-backup-${today()}.json`, JSON.stringify(data), 'application/json');
+$('impJson').onclick = () => $('impFile').click();
+$('impFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!d || typeof d.streets !== 'object') throw new Error('bad');
+    if (!confirm('Replace what is on this phone with this backup?')) return;
+    localStorage.setItem(STORE, JSON.stringify(d));
+    location.reload();
+  } catch (err) { toast('That file is not a project53 backup.'); }
+};
+
+/* ---------- start ---------- */
+updateCounts(); renderPins(); maybeLoad(); startWatch();
+})();
+</script>
+</body>
+</html>
